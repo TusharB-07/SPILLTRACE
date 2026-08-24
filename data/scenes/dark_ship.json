@@ -1,0 +1,16 @@
+{
+ "title": "Spill with silent radar contact (Dark Vessel)",
+ "acq_time": "2026-08-19T12:47:00Z",
+ "truth": "spill_dark_vessel",
+ "slick_bearing_deg": 155,
+ "bounds": {
+  "lon_min": 79.9,
+  "lon_max": 82.4,
+  "lat_min": 12.0,
+  "lat_max": 14.5
+ },
+ "size": [
+  800,
+  800
+ ]
+}

@@ -1,0 +1,28 @@
+{
+ "title": "Sentinel-1A \u2014 2017 Ennore Collision (Dawn Kanchipuram vs BW Maple)",
+ "acq_time": "2017-01-28T00:32:00Z",
+ "truth": "spill_historical_validation",
+ "slick_bearing_deg": 198,
+ "sensor": "Copernicus Sentinel-1A C-SAR (IW Mode, VV Polarization)",
+ "provenance": "Copernicus Data Space Ecosystem (ESA) / DG Shipping Official Casualty Record",
+ "ground_truth_collision": {
+  "lat": 13.228,
+  "lon": 80.3633,
+  "time": "2017-01-27T22:15:00Z",
+  "location_name": "Kamarajar Port Outer Fairway, Ennore (13\u00b013'41\"N 80\u00b021'48\"E)",
+  "spill_vessel": "MT DAWN KANCHIPURAM (IMO 9110810, MMSI 419527000)",
+  "colliding_vessel": "BW MAPLE (IMO 9239850, MMSI 235104443)",
+  "substance": "Heavy Fuel Oil (~250 tonnes Bunker C / Furnace Oil)",
+  "inquiry_source": "Directorate General of Shipping / Ministry of Ports Inquiry Report"
+ },
+ "bounds": {
+  "lon_min": 79.9,
+  "lon_max": 82.4,
+  "lat_min": 12.0,
+  "lat_max": 14.5
+ },
+ "size": [
+  800,
+  800
+ ]
+}

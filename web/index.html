@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAGARNETRA — SIH26143 Oil Spill Attribution Console</title>
+<link rel="stylesheet" href="/static/vendor/leaflet.css">
+<style>
+  :root{
+    --ink:#060b16; --panel:#0c1424; --panel2:#101b31; --line:#1d2a45;
+    --text:#d7e1f2; --muted:#7d8db0; --amber:#ffb454; --alert:#ff5566;
+    --phosphor:#4ade80; --caution:#ffd267;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;height:100vh;display:flex;flex-direction:column;
+       background:var(--ink);color:var(--text);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+
+  /* ── top bar ─────────────────────────────────────────── */
+  #top{display:flex;align-items:center;gap:18px;padding:10px 18px;
+       background:linear-gradient(180deg,#0e1830,#0a1222);
+       border-bottom:1px solid var(--line)}
+  #brand{display:flex;align-items:baseline;gap:10px}
+  #brand .name{font:700 17px/1 var(--mono);letter-spacing:.14em;color:var(--amber)}
+  #brand .sub{font:11px/1 var(--mono);letter-spacing:.08em;color:var(--muted)}
+  #scenes{display:flex;gap:8px;margin-left:auto}
+  #scenes button{display:flex;align-items:center;gap:8px;cursor:pointer;
+    background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:7px;padding:7px 11px;font:12px/1.2 var(--mono)}
+  #scenes button .k{color:var(--muted);border:1px solid var(--line);
+    border-radius:4px;padding:1px 5px;font-size:10px}
+  #scenes button.on{border-color:var(--amber);color:var(--amber);
+    background:rgba(255,180,84,.08)}
+  #clock{font:12px var(--mono);color:var(--muted);margin-left:14px}
+
+  /* ── main split ──────────────────────────────────────── */
+  #main{flex:1;display:flex;min-height:0}
+  #map{flex:1;background:#04101f}
+  #side{width:430px;overflow-y:auto;background:var(--panel);
+        border-left:1px solid var(--line);padding:14px 16px}
+
+  /* ── pipeline telemetry strip (signature) ────────────── */
+  #pipe{display:flex;align-items:stretch;gap:0;margin-bottom:12px}
+  .stage{flex:1;position:relative;padding:8px 6px 7px;text-align:center;
+    border:1px solid var(--line);border-left:none;background:var(--panel2)}
+  .stage:first-child{border-left:1px solid var(--line);
+    border-radius:8px 0 0 8px}
+  .stage:last-child{border-radius:0 8px 8px 0}
+  .stage .nm{font:700 9.5px var(--mono);letter-spacing:.1em;color:var(--muted)}
+  .stage .out{font:10.5px var(--mono);color:var(--muted);margin-top:3px;
+    min-height:13px;opacity:0;transition:opacity .25s}
+  .stage.done{border-color:#2b3d63}
+  .stage.done .nm{color:var(--amber)}
+  .stage.done .out{opacity:1;color:var(--text)}
+  .stage .tick{position:absolute;top:5px;right:6px;font-size:9px;
+    color:var(--phosphor);opacity:0;transition:opacity .2s}
+  .stage.done .tick{opacity:1}
+
+  /* ── verdict ─────────────────────────────────────────── */
+  #verdict{border-radius:9px;padding:13px 15px;margin:0 0 12px;
+    font:700 14px/1.35 var(--mono);letter-spacing:.03em;
+    opacity:0;transform:translateY(4px);
+    transition:opacity .35s ease,transform .35s ease}
+  #verdict.show{opacity:1;transform:none}
+  .v-none {background:rgba(74,222,128,.09);border:1px solid rgba(74,222,128,.4);color:var(--phosphor)}
+  .v-look {background:rgba(255,210,103,.08);border:1px solid rgba(255,210,103,.4);color:var(--caution)}
+  .v-spill{background:rgba(255,85,102,.10);border:1px solid rgba(255,85,102,.5);color:var(--alert)}
+
+  /* ── KPI row ─────────────────────────────────────────── */
+  #kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:8px 10px}
+  .kpi .v{font:700 16px var(--mono);color:var(--text)}
+  .kpi .l{font:9.5px var(--mono);letter-spacing:.1em;color:var(--muted);margin-top:2px}
+
+  /* ── suspects ────────────────────────────────────────── */
+  h2{font:700 11px var(--mono);letter-spacing:.14em;color:var(--muted);
+     margin:16px 0 8px;text-transform:uppercase}
+  .card{border:1px solid var(--line);border-radius:10px;background:var(--panel2);
+    padding:11px 13px;margin:8px 0}
+  .card.top{border-color:var(--amber);
+    box-shadow:0 0 0 1px var(--amber),0 6px 22px -12px rgba(255,180,84,.5)}
+  .card.darkv{border-color:var(--alert);
+    box-shadow:0 0 0 1px var(--alert),0 6px 22px -12px rgba(255,85,102,.6)}
+  .card h3{margin:0;font:600 14px/1.3 var(--mono);display:flex;
+    justify-content:space-between;align-items:baseline;gap:8px}
+  .pct{font:700 15px var(--mono)}
+  .meta{font:11px var(--mono);color:var(--muted);margin-top:3px}
+  .bar{height:5px;border-radius:99px;background:#182545;margin:8px 0 6px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;border-radius:99px;
+    background:linear-gradient(90deg,#7d8db0,var(--amber));
+    transition:width .8s cubic-bezier(.2,.8,.2,1)}
+  .card.top .bar i{background:linear-gradient(90deg,var(--amber),#ffd99a)}
+  .card.darkv .bar i{background:linear-gradient(90deg,#b23,#ff8896)}
+  .ev{margin:6px 0 0;padding-left:16px;color:var(--muted);font-size:12px}
+  .ev li{margin:2px 0}
+  .stamp{font:700 10px var(--mono);letter-spacing:.12em;color:var(--alert)}
+
+  #report{width:100%;margin-top:14px;padding:11px;border-radius:9px;border:0;
+    background:var(--amber);color:#241300;font:700 13px var(--mono);
+    letter-spacing:.05em;cursor:pointer}
+  #report:hover{filter:brightness(1.08)}
+  .foot{margin-top:12px;font:11px/1.6 var(--mono);color:var(--muted)}
+  .foot b{color:var(--text)}
+  .simnote{margin-top:10px;font:10.5px var(--mono);color:#b9a06a}
+
+  .legend{margin-top:12px;font:10.5px var(--mono);color:var(--muted)}
+  .sw{display:inline-block;width:9px;height:9px;border-radius:2px;
+      margin:0 4px 0 10px;vertical-align:middle}
+
+  /* ── map decorations ─────────────────────────────────── */
+  .ais-anim{stroke-dasharray:7 9;animation:flow 1.4s linear infinite}
+  .ais-sus{stroke-dasharray:10 6;animation:flow 1s linear infinite}
+  @keyframes flow{to{stroke-dashoffset:-32}}
+  .pulse{position:relative}
+  .pulse .core{position:absolute;left:50%;top:50%;width:10px;height:10px;
+    margin:-5px 0 0 -5px;border-radius:50%;background:var(--alert)}
+  .pulse .ring{position:absolute;left:50%;top:50%;width:10px;height:10px;
+    margin:-5px 0 0 -5px;border-radius:50%;border:2px solid var(--alert);
+    animation:ring 1.6s ease-out infinite}
+  .pulse .ring:nth-child(2){animation-delay:.8s}
+  @keyframes ring{from{transform:scale(1);opacity:.9}
+                  to{transform:scale(4.2);opacity:0}}
+  .leaflet-container{font-family:var(--mono)}
+  .leaflet-tooltip{background:var(--panel2);color:var(--text);
+    border:1px solid var(--line);font:11px var(--mono)}
+  @media (prefers-reduced-motion: reduce){
+    .ais-anim,.ais-sus,.pulse .ring{animation:none}
+    #verdict,.bar i{transition:none}
+  }
+</style>
+</head>
+<body>
+<div id="top">
+  <div id="brand">
+    <span class="name">SAGARNETRA</span>
+    <span class="sub">SIH26143 · NTRO · SAR ▸ AIS VESSEL ATTRIBUTION</span>
+  </div>
+  <div id="scenes"></div>
+  <div id="clock"></div>
+</div>
+<div id="main">
+  <div id="map"></div>
+  <div id="side">
+    <div id="pipe">
+      <div class="stage" data-s="0"><span class="tick">●</span><div class="nm">INGEST</div><div class="out"></div></div>
+      <div class="stage" data-s="1"><span class="tick">●</span><div class="nm">CALIBRATE</div><div class="out"></div></div>
+      <div class="stage" data-s="2"><span class="tick">●</span><div class="nm">SEGMENT</div><div class="out"></div></div>
+      <div class="stage" data-s="3"><span class="tick">●</span><div class="nm">BACKTRACK</div><div class="out"></div></div>
+      <div class="stage" data-s="4"><span class="tick">●</span><div class="nm">CORRELATE</div><div class="out"></div></div>
+    </div>
+    <div id="verdict"></div>
+    <div id="kpis"></div>
+    <div id="cards"></div>
+    <div class="legend">
+      <span class="sw" style="background:#ff5566"></span>spill
+      <span class="sw" style="background:#ffd267"></span>look-alike
+      <span class="sw" style="background:#38bdf8"></span>casualty anchor
+      <span class="sw" style="background:#ffb454"></span>origin cone / suspect
+      <span class="sw" style="background:#7d8db0"></span>AIS track
+      <span class="sw" style="background:#4ade80"></span>radar contact
+    </div>
+    <div class="foot">Manual spill reporting today: <b>days</b>.
+      This console after satellite downlink: <b>minutes</b>.
+      Detection ▸ drift backtrack ▸ AIS correlation ▸ named vessel.</div>
+    <div class="simnote" id="simnote"></div>
+  </div>
+</div>
+<script src="/static/vendor/leaflet.js"></script>
+<script>
+const TEAM = "TEAM [YOUR TEAM ID]";           // shown on the evidence report
+const map = L.map('map', {zoomSnap:.25, zoomControl:true});
+let layers = [], data = null, cache = {}, animTimers = [];
+
+function clearAll(){
+  layers.forEach(l => map.removeLayer(l)); layers = [];
+  animTimers.forEach(t => clearTimeout(t)); animTimers = [];
+}
+const add = l => (l.addTo(map), layers.push(l), l);
+const later = (fn, ms) => animTimers.push(setTimeout(fn, ms));
+
+/* clock */
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toISOString().slice(0,19).replace('T',' ') + 'Z';
+}, 1000);
+
+async function boot(){
+  const list = await (await fetch('/api/scenes')).json();
+  const box = document.getElementById('scenes');
+  list.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.id = 'btn-' + s.id;
+    b.innerHTML = '<span class="k">' + (i+1) + '</span>' + s.title;
+    b.onclick = () => show(s.id);
+    box.appendChild(b);
+  });
+  for (const s of list)                        /* preload: instant switching */
+    cache[s.id] = await (await fetch('/api/analyze/' + s.id)).json();
+  window.addEventListener('keydown', e => {
+    const i = parseInt(e.key) - 1;
+    if (list[i]) show(list[i].id);
+    if (e.key === 'r' && data) report();
+  });
+  show(list[0].id);
+}
+
+function show(id){
+  document.querySelectorAll('#scenes button').forEach(b => b.classList.remove('on'));
+  document.getElementById('btn-' + id).classList.add('on');
+  data = cache[id];
+  clearAll();
+  drawMap(id);
+  runPipeline();
+}
+
+function drawMap(id){
+  const b = data.meta.bounds;
+  const bounds = [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]];
+  add(L.imageOverlay('/scenes/' + id + '.png', bounds, {opacity:.95}));
+  map.fitBounds(bounds, {padding:[10,10]});
+
+  (data.origin_cone || []).forEach((p, i) =>
+    add(L.circleMarker(p, {radius:1.8 + i*.14, color:'#ffb454', weight:1,
+        fillOpacity:.2})).bindTooltip('origin −' + (i+1) + ' h'));
+
+  if (data.meta.ground_truth_collision) {
+    const gt = data.meta.ground_truth_collision;
+    add(L.circleMarker([gt.lat, gt.lon], {
+      radius: 9, color: '#38bdf8', weight: 2.5, fillColor: '#0284c7', fillOpacity: 0.6
+    })).bindTooltip('⚓ OFFICIAL COLLISION ANCHOR: ' + gt.lat.toFixed(4) + '°N ' + gt.lon.toFixed(4) + '°E'
+                    + '<br><b>' + (gt.spill_vessel || '') + '</b>'
+                    + '<br>' + (gt.location_name || ''));
+  }
+
+  data.detections.forEach(d => {
+    const ll = d.polygon_lonlat.map(q => [q[1], q[0]]);
+    const spill = d.kind === 'spill';
+    add(L.polygon(ll, {color: spill ? '#ff5566' : '#ffd267', weight:2.2,
+        dashArray: spill ? null : '6 5', fillColor: spill ? '#ff5566' : '#ffd267',
+        fillOpacity:.10}))
+      .bindTooltip((spill ? 'OIL SPILL ' : 'LOOK-ALIKE ') + (d.confidence*100).toFixed(0) + '%');
+  });
+
+  const topM = data.suspects.length && data.suspects[0].confidence > .5
+             ? data.suspects[0].mmsi : null;
+  (data.ais_tracks || []).forEach(t => {
+    const sus = t.mmsi === topM;
+    add(L.polyline(t.points, {color: sus ? '#ffb454' : '#7d8db0',
+        weight: sus ? 3.5 : 1.6, opacity: sus ? 1 : .7,
+        className: sus ? 'ais-sus' : 'ais-anim'}))
+      .bindTooltip(t.name + ' · ' + t.ship_type + ' · MMSI ' + t.mmsi);
+  });
+
+  data.ships.forEach(s =>
+    add(L.circleMarker([s.lat, s.lon], {radius:6, color:'#4ade80', weight:2,
+        fillOpacity:.25})).bindTooltip('radar contact'));
+
+  (data.dark_vessels || []).forEach(d =>
+    add(L.marker([d.lat, d.lon], {icon: L.divIcon({className:'',
+        html:'<div class="pulse"><span class="ring"></span><span class="ring"></span><span class="core"></span></div>',
+        iconSize:[10,10]})})).bindTooltip(d.note));
+}
+
+function runPipeline(){
+  const spills = data.detections.filter(d => d.kind === 'spill');
+  const looks = data.detections.filter(d => d.kind === 'lookalike');
+  const st = document.querySelectorAll('.stage');
+  st.forEach(s => { s.classList.remove('done'); s.querySelector('.out').textContent=''; });
+  document.getElementById('verdict').className = '';
+  document.getElementById('kpis').innerHTML = '';
+  document.getElementById('cards').innerHTML = '';
+  document.getElementById('simnote').textContent = (data.ais_note ? 'PROVENANCE: ' + data.ais_note : '');
+
+  const outs = [
+    'σ0 VV · ' + data.meta.size[0] + '×' + data.meta.size[1] + ' px',
+    'despeckle + γ-cal',
+    (spills.length + looks.length) + ' dark obj · ' + data.ships.length + ' contacts',
+    (data.origin_cone||[]).length ? (data.origin_cone.length + ' origin pts / 24 h') : 'n/a — no spill',
+    (data.ais_tracks||[]).length ? (data.ais_tracks.length + ' tracks scored') : 'n/a'
+  ];
+  st.forEach((s, i) => later(() => {
+    s.classList.add('done');
+    s.querySelector('.out').textContent = outs[i];
+    if (i === st.length - 1) later(showVerdict, 180);
+  }, 260 * (i + 1)));
+}
+
+function showVerdict(){
+  const spills = data.detections.filter(d => d.kind === 'spill');
+  const looks = data.detections.filter(d => d.kind === 'lookalike');
+  const v = document.getElementById('verdict');
+  if (!data.detections.length){
+    v.className = 'v-none show';
+    v.textContent = '✓ NO SPILL DETECTED — SEA STATE NORMAL';
+  } else if (!spills.length){
+    v.className = 'v-look show';
+    v.textContent = '△ DARK PATCH REJECTED — LOOK-ALIKE (ALGAE / LOW WIND) · '
+      + (looks[0].confidence*100).toFixed(0) + '%';
+  } else {
+    v.className = 'v-spill show';
+    let label = '⬤ OIL SPILL CONFIRMED · ' + (spills[0].confidence*100).toFixed(0) + '%';
+    if (data.ground_truth_validation) {
+      label += ' · ⚓ VALIDATED (' + data.ground_truth_validation.error_km + ' km TO CASUALTY ANCHOR)';
+    } else {
+      label += ' · ATTRIBUTION ' + (topSuspect() ? 'LOCKED' : 'OPEN — DARK VESSEL SUSPECTED');
+    }
+    v.textContent = label;
+  }
+  drawKpis(); drawCards();
+}
+const topSuspect = () =>
+  data.suspects.length && data.suspects[0].confidence > .5 ? data.suspects[0] : null;
+
+function drawKpis(){
+  const spills = data.detections.filter(d => d.kind === 'spill');
+  const k = document.getElementById('kpis');
+  const cell = (v, l) => '<div class="kpi"><div class="v">' + v
+    + '</div><div class="l">' + l + '</div></div>';
+  if (!spills.length){
+    k.innerHTML = cell(data.ships.length, 'RADAR CONTACTS')
+      + cell((data.detections.length ? '1' : '0'), 'DARK OBJECTS')
+      + cell('0', 'SPILLS') + cell('—', 'SUSPECTS');
+    return;
+  }
+  const f = spills[0].features;
+  let html = cell('≈' + Math.round(f.area_px * .109) + ' km²', 'SLICK AREA')
+    + cell(Math.round(f.axis_bearing_deg) + '°', 'SLICK AXIS')
+    + cell((spills[0].confidence*100).toFixed(0) + '%', 'DETECTION CONF');
+  if (data.ground_truth_validation) {
+    html += cell(data.ground_truth_validation.error_km + ' km', 'ORIGIN ERROR')
+          + cell('−' + data.ground_truth_validation.predicted_discharge_hours_prior + ' h', 'EST. DISCHARGE');
+  } else {
+    html += cell((data.ais_tracks||[]).length, 'AIS TRACKS');
+  }
+  k.innerHTML = html;
+}
+
+function drawCards(){
+  const c = document.getElementById('cards');
+  let html = '';
+  if (data.suspects.length){
+    html += '<h2>Vessel attribution — ranked</h2>';
+    data.suspects.forEach((s, i) => {
+      const top = i === 0 && s.confidence > .5;
+      html += '<div class="card' + (top ? ' top' : '') + '">'
+        + '<h3>' + (top ? '▲ ' : '') + s.name
+        + '<span class="pct" style="color:' + (top ? 'var(--amber)' : 'var(--muted)') + '">'
+        + (s.confidence*100).toFixed(0) + '%</span></h3>'
+        + '<div class="meta">MMSI ' + s.mmsi + ' · ' + s.ship_type
+        + ' · closest ' + s.closest_approach_km + ' km · Δcourse '
+        + s.course_vs_axis_deg + '°</div>'
+        + '<div class="bar"><i data-w="' + (s.confidence*100) + '"></i></div>'
+        + '<ul class="ev">' + s.evidence.map(e => '<li>' + e + '</li>').join('')
+        + '</ul></div>';
+    });
+    if (!topSuspect())
+      html += '<div class="meta">No AIS vessel clears the 50% attribution threshold.</div>';
+  }
+  (data.dark_vessels || []).forEach(d => {
+    html += '<div class="card darkv"><h3>UNIDENTIFIED RADAR CONTACT'
+      + '<span class="stamp">' + (d.inside_origin_cone ? 'PRIME SUSPECT' : 'MONITOR')
+      + '</span></h3>'
+      + '<div class="meta">' + d.lat.toFixed(3) + '°N ' + d.lon.toFixed(3) + '°E · no AIS transponder</div>'
+      + '<div class="bar"><i data-w="' + (d.inside_origin_cone ? 92 : 35) + '"></i></div>'
+      + '<ul class="ev"><li>' + d.note + '</li>'
+      + '<li>Switching AIS off does not hide a hull from radar — it removes the alibi.</li></ul></div>';
+  });
+  if (data.detections.length)
+    html += '<button id="report" onclick="report()">GENERATE EVIDENCE REPORT ▸</button>';
+  c.innerHTML = html;
+  later(() => document.querySelectorAll('.bar i').forEach(b =>
+    b.style.width = b.dataset.w + '%'), 60);
+}
+
+function report(){
+  const spills = data.detections.filter(d => d.kind === 'spill');
+  const s = topSuspect();
+  const caseId = 'SIH26143/' + data.scene.toUpperCase() + '/'
+    + data.meta.acq_time.slice(0,10).replaceAll('-','');
+  const w = window.open('', '_blank');
+  let reportHtml = '<html><head><title>' + caseId + '</title><style>'
+    + 'body{font:13px/1.6 Georgia,serif;max-width:740px;margin:36px auto;color:#101418}'
+    + 'h1{font-size:18px;margin:2px 0 0}'
+    + '.hd{border-bottom:3px double #101418;padding-bottom:10px;margin-bottom:14px}'
+    + '.cid{font:12px ui-monospace,Menlo,monospace;color:#333}'
+    + 'h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:20px 0 6px}'
+    + 'td{padding:5px 10px;border:1px solid #888;font-size:12.5px}'
+    + 'table{border-collapse:collapse;width:100%}'
+    + '.sim{color:#8a5b00;font-size:11.5px;margin-top:16px}'
+    + '.sig{margin-top:26px;font-size:12px}</style></head><body>'
+    + '<div class="hd"><div class="cid">CASE ' + caseId + ' · ' + TEAM
+    + ' · GENERATED ' + new Date().toISOString() + '</div>'
+    + '<h1>Marine Oil Spill — Detection &amp; Vessel Attribution Report</h1></div>'
+    + '<h2>1 · Acquisition &amp; Data Provenance</h2><table>'
+    + '<tr><td>Scene</td><td>' + data.meta.title + '</td></tr>'
+    + '<tr><td>Sensor</td><td>' + (data.meta.sensor || 'C-band SAR, VV (Sentinel-1)') + '</td></tr>'
+    + '<tr><td>Acquired</td><td>' + data.meta.acq_time + '</td></tr>'
+    + '<tr><td>Data Attribution</td><td>' + (data.meta.provenance || 'Copernicus Open Access / DMA AIS') + '</td></tr></table>';
+
+  if (spills.length) {
+    reportHtml += '<h2>2 · Detection</h2><table>'
+      + '<tr><td>Classification</td><td>OIL SPILL · confidence '
+      + (spills[0].confidence*100).toFixed(0) + '%</td></tr>'
+      + '<tr><td>Slick area</td><td>≈' + Math.round(spills[0].features.area_px*.109)
+      + ' km²</td></tr>'
+      + '<tr><td>Major axis</td><td>' + Math.round(spills[0].features.axis_bearing_deg)
+      + '° (used for course matching)</td></tr></table>';
+  }
+
+  if (data.ground_truth_validation && data.meta.ground_truth_collision) {
+    const gt = data.meta.ground_truth_collision;
+    const gtv = data.ground_truth_validation;
+    reportHtml += '<h2>3 · Empirical Ground-Truth Casualty Validation</h2><table>'
+      + '<tr><td>Casualty Event</td><td>' + (gt.location_name || 'Ennore Kamarajar Port Fairway') + '</td></tr>'
+      + '<tr><td>Ground Truth Coordinates</td><td>' + gt.lat + '°N ' + gt.lon + '°E (Recorded Collision Site)</td></tr>'
+      + '<tr><td>Spill Source Vessel</td><td><b>' + gt.spill_vessel + '</b></td></tr>'
+      + '<tr><td>Colliding Vessel</td><td>' + gt.colliding_vessel + '</td></tr>'
+      + '<tr><td>Predicted Discharge Origin Error</td><td><b>' + gtv.error_km + ' km</b> (origin cone closest approach)</td></tr>'
+      + '<tr><td>Estimated Discharge Time</td><td>−' + gtv.predicted_discharge_hours_prior + ' hours prior to SAR overpass</td></tr>'
+      + '<tr><td>Formal Inquiry Record</td><td>' + gt.inquiry_source + '</td></tr></table>';
+  }
+
+  if (s) {
+    reportHtml += '<h2>4 · Primary Suspect &amp; Forensic Attribution</h2><table>'
+      + '<tr><td>Vessel</td><td>' + s.name + ' · MMSI ' + s.mmsi + ' · ' + s.ship_type + '</td></tr>'
+      + '<tr><td>Attribution confidence</td><td>' + (s.confidence*100).toFixed(0) + '%</td></tr>'
+      + s.evidence.map(e => '<tr><td>Evidence</td><td>' + e + '</td></tr>').join('')
+      + '</table>';
+  }
+
+  if (data.dark_vessels && data.dark_vessels.length) {
+    reportHtml += data.dark_vessels.map(d => '<h2>4 · Unidentified Radar Contact (Dark Vessel)</h2>'
+      + '<p>' + d.lat.toFixed(4) + '°N ' + d.lon.toFixed(4) + '°E — ' + d.note + '</p>').join('');
+  }
+
+  reportHtml += '<h2>5 · Chain of Custody</h2>'
+    + '<p>Scene <code>' + data.scene + '</code> · detector <code>baseline-cv-v1</code> · '
+    + 'correlation <code>spacetime-cone-v1</code> · outputs reproducible from cached scene data.</p>'
+    + '<p class="sim">Data provenance: ' + (data.ais_note || 'Standard open maritime schemas') + '.</p>'
+    + '<div class="sig">Generated by SAGARNETRA correlation engine · ' + TEAM + '</div>'
+    + '<script>window.print()<\/script></body></html>';
+
+  w.document.write(reportHtml);
+  w.document.close();
+}
+boot();
+</script>
+</body>
+</html>

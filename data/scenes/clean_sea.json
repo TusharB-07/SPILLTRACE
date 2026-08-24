@@ -1,0 +1,15 @@
+{
+ "title": "Clean sea \u2014 Chennai coast",
+ "acq_time": "2026-08-20T00:32:00Z",
+ "truth": "no_spill",
+ "bounds": {
+  "lon_min": 79.9,
+  "lon_max": 82.4,
+  "lat_min": 12.0,
+  "lat_max": 14.5
+ },
+ "size": [
+  800,
+  800
+ ]
+}

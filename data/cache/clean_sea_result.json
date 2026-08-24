@@ -1,0 +1,36 @@
+{
+ "scene": "clean_sea",
+ "meta": {
+  "title": "Clean sea \u2014 Chennai coast",
+  "acq_time": "2026-08-20T00:32:00Z",
+  "truth": "no_spill",
+  "bounds": {
+   "lon_min": 79.9,
+   "lon_max": 82.4,
+   "lat_min": 12.0,
+   "lat_max": 14.5
+  },
+  "size": [
+   800,
+   800
+  ]
+ },
+ "ships": [
+  {
+   "lon": 81.4625,
+   "lat": 13.5625
+  },
+  {
+   "lon": 81.93125,
+   "lat": 12.5625
+  }
+ ],
+ "detections": [],
+ "suspects": [],
+ "dark_vessels": [],
+ "origin_cone": [],
+ "ais_tracks": [],
+ "ground_truth_validation": null,
+ "ais_note": "",
+ "provenance": ""
+}

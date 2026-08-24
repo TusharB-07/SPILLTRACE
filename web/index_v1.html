@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SIH26143 — Oil Spill Attribution</title>
+<link rel="stylesheet" href="/static/vendor/leaflet.css">
+<style>
+  :root { --bg:#0b1220; --panel:#111a2e; --line:#1f2b47; --tx:#dbe4f5;
+          --dim:#8494b3; --acc:#ff8b3d; --red:#ff4d5e; --grn:#39d98a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--tx); display:flex; height:100vh; }
+  #map { flex:1; background:#06101f; }
+  #side { width:400px; overflow-y:auto; background:var(--panel);
+          border-left:1px solid var(--line); padding:14px; }
+  h1 { font-size:15px; margin:0 0 2px; }
+  .sub { color:var(--dim); font-size:11.5px; margin-bottom:12px; }
+  .scenes button { display:block; width:100%; text-align:left; margin:4px 0;
+    background:#16223c; color:var(--tx); border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; cursor:pointer; font-size:13px; }
+  .scenes button.on { border-color:var(--acc); background:#241a10; }
+  .banner { margin:12px 0; padding:10px 12px; border-radius:8px;
+            font-weight:600; font-size:13px; }
+  .b-none { background:#10301f; color:var(--grn); }
+  .b-look { background:#33290e; color:#ffd267; }
+  .b-spill{ background:#3a1218; color:var(--red); }
+  .card { border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+          margin:8px 0; background:#0e1730; }
+  .card.top { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
+  .card h3 { margin:0; font-size:13.5px; }
+  .conf { float:right; font-weight:700; }
+  .ev { margin:6px 0 0; padding-left:16px; color:var(--dim); font-size:12px; }
+  .tag { display:inline-block; font-size:10.5px; padding:1px 7px;
+         border-radius:99px; background:#1b2947; color:var(--dim); margin-top:4px;}
+  .dark { border-color:var(--red); }
+  .note { color:var(--dim); font-size:11px; margin-top:10px; }
+  #report-btn { width:100%; margin-top:10px; padding:9px; border-radius:8px;
+    border:0; background:var(--acc); color:#1a0d00; font-weight:700;
+    cursor:pointer; font-size:13px; }
+  .legend { font-size:11.5px; color:var(--dim); margin-top:10px; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px;
+        margin:0 4px 0 10px; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="side">
+  <h1>Oil Spill Detection &amp; Vessel Attribution</h1>
+  <div class="sub">SIH26143 · NTRO · SAR + AIS correlation ·
+    <b>demo scenes: synthetic SAR, simulated AIS (labelled)</b></div>
+  <div class="scenes" id="scenes"></div>
+  <div id="result"></div>
+  <div class="legend">
+    <span class="sw" style="background:#ff4d5e"></span>spill
+    <span class="sw" style="background:#ffd267"></span>look-alike
+    <span class="sw" style="background:#ff8b3d"></span>origin cone / suspect
+    <span class="sw" style="background:#7f93b8"></span>AIS track
+    <span class="sw" style="background:#39d98a"></span>radar contact
+  </div>
+</div>
+<script src="/static/vendor/leaflet.js"></script>
+<script>
+const map = L.map('map', { zoomSnap: 0.25 });
+let layers = [], current = null, data = null;
+
+function clearLayers(){ layers.forEach(l => map.removeLayer(l)); layers = []; }
+function add(l){ l.addTo(map); layers.push(l); return l; }
+
+async function loadScenes(){
+  const list = await (await fetch('/api/scenes')).json();
+  const box = document.getElementById('scenes');
+  list.forEach(s => {
+    const b = document.createElement('button');
+    b.textContent = s.title + '  ·  ' + s.acq_time.slice(0,16).replace('T',' ') + 'Z';
+    b.id = 'btn-' + s.id;
+    b.onclick = () => show(s.id);
+    box.appendChild(b);
+  });
+  show(list[0].id);
+}
+
+async function show(id){
+  document.querySelectorAll('.scenes button').forEach(b => b.classList.remove('on'));
+  document.getElementById('btn-' + id).classList.add('on');
+  data = await (await fetch('/api/analyze/' + id)).json();
+  current = id;
+  clearLayers();
+  const b = data.meta.bounds;
+  const bounds = [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]];
+  add(L.imageOverlay('/scenes/' + id + '.png', bounds, { opacity: 0.95 }));
+  map.fitBounds(bounds);
+
+  (data.origin_cone || []).forEach((p, i) =>
+    add(L.circleMarker(p, { radius: 2 + i * 0.15, color: '#ff8b3d',
+        weight: 1, fillOpacity: 0.25 })));
+
+  data.detections.forEach(d => {
+    const latlngs = d.polygon_lonlat.map(q => [q[1], q[0]]);
+    const spill = d.kind === 'spill';
+    add(L.polygon(latlngs, { color: spill ? '#ff4d5e' : '#ffd267',
+        weight: 2, dashArray: spill ? null : '6 5', fillOpacity: 0.12 }))
+      .bindTooltip((spill ? 'SPILL ' : 'LOOK-ALIKE ') + d.confidence);
+  });
+
+  const topM = data.suspects.length && data.suspects[0].confidence > 0.5
+             ? data.suspects[0].mmsi : null;
+  (data.ais_tracks || []).forEach(t => {
+    const sus = t.mmsi === topM;
+    add(L.polyline(t.points, { color: sus ? '#ff8b3d' : '#7f93b8',
+        weight: sus ? 3.5 : 1.7, opacity: sus ? 1 : 0.75 }))
+      .bindTooltip(t.name + ' (' + t.ship_type + ')');
+  });
+
+  data.ships.forEach(s =>
+    add(L.circleMarker([s.lat, s.lon], { radius: 6, color: '#39d98a',
+        weight: 2, fillOpacity: 0.3 })).bindTooltip('radar contact'));
+
+  (data.dark_vessels || []).forEach(d =>
+    add(L.circleMarker([d.lat, d.lon], { radius: 10, color: '#ff4d5e',
+        weight: 3, fillOpacity: 0.15 })).bindTooltip(d.note));
+
+  renderPanel();
+}
+
+function renderPanel(){
+  const r = document.getElementById('result');
+  const spills = data.detections.filter(d => d.kind === 'spill');
+  const looks = data.detections.filter(d => d.kind === 'lookalike');
+  let html = '';
+  if (!data.detections.length)
+    html += '<div class="banner b-none">NO SPILL DETECTED — sea state normal</div>';
+  else if (!spills.length)
+    html += '<div class="banner b-look">DARK PATCH REJECTED — classified as '
+         + 'look-alike (algae / low wind), confidence ' + looks[0].confidence + '</div>';
+  else
+    html += '<div class="banner b-spill">OIL SPILL CONFIRMED — confidence '
+         + spills[0].confidence + ', area ≈ '
+         + Math.round(spills[0].features.area_px * 0.109) + ' km²</div>';
+
+  if (spills.length){
+    const f = spills[0].features;
+    html += '<div class="note">slick major axis ' + Math.round(f.axis_bearing_deg)
+         + '° · elongation ' + f.elongation.toFixed(1) + ' · contrast '
+         + (f.contrast * 100).toFixed(0) + '%</div>';
+  }
+  if (data.suspects.length){
+    html += '<h1 style="margin-top:14px">Suspect ranking</h1>';
+    data.suspects.forEach((s, i) => {
+      const top = i === 0 && s.confidence > 0.5;
+      html += '<div class="card' + (top ? ' top' : '') + '"><h3>'
+        + (top ? '&#9650; ' : '') + s.name
+        + '<span class="conf" style="color:' + (top ? '#ff8b3d' : '#8494b3') + '">'
+        + (s.confidence * 100).toFixed(0) + '%</span></h3>'
+        + '<div class="tag">MMSI ' + s.mmsi + ' · ' + s.ship_type + '</div>'
+        + '<ul class="ev">' + s.evidence.map(e => '<li>' + e + '</li>').join('') + '</ul></div>';
+    });
+    if (!(data.suspects[0].confidence > 0.5))
+      html += '<div class="note">No AIS vessel exceeds the 50% attribution threshold.</div>';
+  }
+  (data.dark_vessels || []).forEach(d => {
+    html += '<div class="card dark"><h3>UNIDENTIFIED RADAR CONTACT'
+      + '<span class="conf" style="color:#ff4d5e">' 
+      + (d.inside_origin_cone ? 'PRIME SUSPECT' : 'monitor') + '</span></h3>'
+      + '<div class="tag">' + d.lat.toFixed(3) + '°N, ' + d.lon.toFixed(3) + '°E</div>'
+      + '<ul class="ev"><li>' + d.note + '</li>'
+      + '<li>Turning AIS off does not hide a hull from radar.</li></ul></div>';
+  });
+  if (data.ais_note) html += '<div class="note">&#9888; ' + data.ais_note + '</div>';
+  if (data.detections.length)
+    html += '<button id="report-btn" onclick="report()">Generate Evidence Report</button>';
+  r.innerHTML = html;
+}
+
+function report(){
+  const spills = data.detections.filter(d => d.kind === 'spill');
+  const s = data.suspects[0];
+  const w = window.open('', '_blank');
+  w.document.write('<html><head><title>Evidence Report</title><style>'
+    + 'body{font:13px Georgia,serif;max-width:720px;margin:40px auto;color:#111}'
+    + 'h1{font-size:19px;border-bottom:2px solid #111;padding-bottom:6px}'
+    + 'td{padding:4px 10px;border:1px solid #999;font-size:12.5px}'
+    + 'table{border-collapse:collapse;margin:12px 0}.sim{color:#a00}</style></head><body>'
+    + '<h1>Oil Spill Attribution — Evidence Report</h1>'
+    + '<p><b>Scene:</b> ' + data.meta.title + ' &nbsp; <b>Acquisition:</b> '
+    + data.meta.acq_time + ' &nbsp; <b>Sensor:</b> synthetic C-band SAR (demo)</p>'
+    + (spills.length ? '<table><tr><td>Detection</td><td>'
+        + spills[0].kind.toUpperCase() + ' @ ' + spills[0].confidence + '</td></tr>'
+        + '<tr><td>Slick axis</td><td>'
+        + Math.round(spills[0].features.axis_bearing_deg) + '&deg;</td></tr>'
+        + '<tr><td>Area</td><td>&asymp; '
+        + Math.round(spills[0].features.area_px * 0.109) + ' km&sup2;</td></tr></table>' : '')
+    + (s ? '<h1>Primary suspect</h1><table>'
+        + '<tr><td>Vessel</td><td>' + s.name + ' (MMSI ' + s.mmsi + ', '
+        + s.ship_type + ')</td></tr>'
+        + '<tr><td>Attribution confidence</td><td>'
+        + (s.confidence * 100).toFixed(0) + '%</td></tr>'
+        + s.evidence.map(e => '<tr><td>Evidence</td><td>' + e + '</td></tr>').join('')
+        + '</table>' : '')
+    + ((data.dark_vessels || []).map(d => '<h1>Unidentified radar contact</h1><p>'
+        + d.lat.toFixed(4) + '&deg;N ' + d.lon.toFixed(4) + '&deg;E — ' + d.note
+        + '</p>').join(''))
+    + '<p class="sim">Demo dataset: synthetic SAR scene; AIS simulated '
+    + '(schema identical to Danish DMA open AIS). Pipeline identical for real data.</p>'
+    + '<p>Chain of custody: scene ' + data.scene + ' &middot; model baseline-cv-v1 '
+    + '&middot; generated ' + new Date().toISOString() + '</p>'
+    + '<script>window.print()<\/script></body></html>');
+  w.document.close();
+}
+loadScenes();
+</script>
+</body>
+</html>

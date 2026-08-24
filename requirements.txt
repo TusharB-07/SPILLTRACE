@@ -1,0 +1,8 @@
+numpy>=1.26.0
+pillow>=10.0.0
+scipy>=1.13.0
+shapely>=2.0.0
+pyproj>=3.6.0
+pandas>=2.2.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.30.0
